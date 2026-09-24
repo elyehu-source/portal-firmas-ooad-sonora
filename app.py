@@ -1084,8 +1084,11 @@ def main():
                 st.caption("✍️ **Rúbrica / Firma Autógrafa Visual (Opcional)**")
                 
                 session_key = f"rubrica_bytes_{idx}"
+                canvas_ver_key = f"canvas_ver_{idx}"
                 if session_key not in st.session_state:
                     st.session_state[session_key] = None
+                if canvas_ver_key not in st.session_state:
+                    st.session_state[canvas_ver_key] = 0
 
                 rubrica_mode = st.radio(
                     f"Método para ingresar la rúbrica - Firmante {idx+1}:",
@@ -1123,7 +1126,7 @@ def main():
                             width=400,
                             drawing_mode="freedraw",
                             return_image_data=True,
-                            key=f"canvas_{idx}"
+                            key=f"canvas_{idx}_{st.session_state[canvas_ver_key]}"
                         )
                         col_save, col_clear = st.columns(2)
                         with col_save:
@@ -1134,6 +1137,7 @@ def main():
                         if btn_clear:
                             st.session_state[session_key] = None
                             st.session_state[f"canvas_png_{idx}"] = None
+                            st.session_state[canvas_ver_key] += 1
                             st.rerun()
 
                         if canvas_res is not None:
