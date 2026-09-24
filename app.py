@@ -404,7 +404,7 @@ def insertar_firma_en_docx(doc_bytes: bytes, signers_credentials: list):
             except Exception:
                 pass
 
-            # --- PASE 1: Términos prioritarios específicos del firmante (Nombre, Apellidos, RFC) ---
+            # --- PASE 1: Términos prioritarios específicos del firmante (Nombre completo y combinación de apellidos) ---
             pass1_terms = []
             if nombre:
                 pass1_terms.append(nombre)
@@ -412,9 +412,6 @@ def insertar_firma_en_docx(doc_bytes: bytes, signers_credentials: list):
                 if len(parts) >= 2:
                     pass1_terms.append(' '.join(parts[-2:]))
                     pass1_terms.append(' '.join(parts[:2]))
-                for pt in parts:
-                    if len(pt) >= 4 and pt not in ['DELE', 'SUBD', 'DIRECTOR', 'TITULAR', 'JEFE']:
-                        pass1_terms.append(pt)
             if rfc and rfc != "NO IDENTIFICADO":
                 pass1_terms.append(rfc)
 
@@ -465,7 +462,7 @@ def insertar_firma_en_docx(doc_bytes: bytes, signers_credentials: list):
                 p_img.text = ""
                 p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER if parrafo.alignment == WD_ALIGN_PARAGRAPH.CENTER else parrafo.alignment
                 p_img.paragraph_format.line_spacing = None
-                p_img.paragraph_format.space_before = Inches(0.02)
+                p_img.paragraph_format.space_before = Inches(0.15)
                 p_img.paragraph_format.space_after = Inches(0.02)
                 run = p_img.add_run()
                 run.add_picture(io.BytesIO(r_bytes), width=Inches(1.8))
@@ -480,10 +477,10 @@ def insertar_firma_en_docx(doc_bytes: bytes, signers_credentials: list):
                 if not current_terms or firma_insertada:
                     continue
 
-                # 1. Buscar en párrafos principales
+                # 1. Buscar en párrafos principales del cuerpo (área fuera de tablas)
                 for parrafo in doc.paragraphs:
                     p_upper = parrafo.text.upper()
-                    if any(term in p_upper for term in current_terms if len(term) >= 2):
+                    if any(term in p_upper for term in current_terms if len(term) >= 3):
                         try:
                             _do_insert(parrafo, "párrafo")
                             break
@@ -493,13 +490,20 @@ def insertar_firma_en_docx(doc_bytes: bytes, signers_credentials: list):
                 if firma_insertada:
                     break
 
-                # 2. Buscar en celdas de tablas
+                # 2. Buscar en tablas ÚNICAMENTE si son tablas de firmas (con líneas ___ o etiquetas explícitas)
                 for tabla in doc.tables:
+                    # Si es una tabla de datos (más de 2 filas) y NO contiene líneas de firma en la celda, no insertar rúbrica dentro
+                    if len(tabla.rows) > 2:
+                        # Verificar si alguna celda tiene líneas de firma explícitas
+                        has_sig_line = any(any(lt in cel.text for lt in ['___', '---', '......', 'FIRMA', 'ATENTAMENTE']) for r in tabla.rows for cel in r.cells)
+                        if not has_sig_line:
+                            continue
+
                     for fila in tabla.rows:
                         for celda in fila.cells:
                             for parrafo in celda.paragraphs:
                                 p_upper = parrafo.text.upper()
-                                if any(term in p_upper for term in current_terms if len(term) >= 2):
+                                if any(term in p_upper for term in current_terms if len(term) >= 3):
                                     try:
                                         _do_insert(parrafo, "tabla")
                                         break
@@ -514,9 +518,14 @@ def insertar_firma_en_docx(doc_bytes: bytes, signers_credentials: list):
                     if firma_insertada:
                         break
 
-            # 4. Fallback: Si no se encontró en ningún pase, colocar al final respetando el orden oficial (Rúbrica -> Línea -> Nombre)
+            # 4. Fallback: Si no se encontró en ningún pase, colocar al final en área limpia despejada (Rúbrica -> Línea -> Nombre)
             if not firma_insertada:
                 try:
+                    # Párrafo separador grande para empujar la firma hacia un área limpia en blanco
+                    p_spacer = doc.add_paragraph()
+                    p_spacer.paragraph_format.space_before = Inches(0.6)
+                    p_spacer.paragraph_format.space_after = Inches(0.1)
+
                     # 1. Rúbrica ARRIBA de la línea de firma
                     p_rub = doc.add_paragraph()
                     p_rub.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -524,20 +533,20 @@ def insertar_firma_en_docx(doc_bytes: bytes, signers_credentials: list):
                     p_rub.paragraph_format.space_before = Inches(0.1)
                     p_rub.paragraph_format.space_after = Inches(0.01)
                     r_img = p_rub.add_run()
-                    r_img.add_picture(io.BytesIO(r_bytes), width=Inches(1.8))
+                    r_img.add_picture(io.BytesIO(r_bytes), width=Inches(1.6))
 
                     # 2. Línea de firma y Nombre del firmante DEBAJO de la rúbrica
                     p_name = doc.add_paragraph()
                     p_name.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     p_name.paragraph_format.line_spacing = None
                     p_name.paragraph_format.space_before = Inches(0.01)
-                    p_name.paragraph_format.space_after = Inches(0.05)
+                    p_name.paragraph_format.space_after = Inches(0.1)
                     run_text = p_name.add_run(f"_______________________________________\n{nombre}")
                     run_text.bold = True
 
                     modified = True
                     firma_insertada = True
-                    metodo = "al final del documento (bloque oficial de firma)"
+                    metodo = "al final del documento (bloque oficial de firma en área despejada)"
                 except Exception:
                     pass
 
@@ -1264,12 +1273,14 @@ def main():
                 if uploaded_doc.name.lower().endswith('.docx'):
                     modified_docx_bytes, insertion_summary = insertar_firma_en_docx(raw_doc_bytes, signers_credentials)
                     pdf_bytes = convert_docx_to_pdf_bytes(modified_docx_bytes)
+                    signed_pdf_bytes, summary_meta, sig_details = procesar_firma_pdf(
+                        pdf_bytes, signers_credentials, estampar_en_paginas_doc=False
+                    )
                 else:
                     pdf_bytes = raw_doc_bytes
-
-                signed_pdf_bytes, summary_meta, sig_details = procesar_firma_pdf(
-                    pdf_bytes, signers_credentials, estampar_en_paginas_doc=True
-                )
+                    signed_pdf_bytes, summary_meta, sig_details = procesar_firma_pdf(
+                        pdf_bytes, signers_credentials, estampar_en_paginas_doc=True
+                    )
 
                 st.success("✅ ¡Documento firmado exitosamente!")
 
