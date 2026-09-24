@@ -514,17 +514,30 @@ def insertar_firma_en_docx(doc_bytes: bytes, signers_credentials: list):
                     if firma_insertada:
                         break
 
-            # 4. Fallback: Si no se encontró en ningún pase, colocar al final
+            # 4. Fallback: Si no se encontró en ningún pase, colocar al final respetando el orden oficial (Rúbrica -> Línea -> Nombre)
             if not firma_insertada:
                 try:
-                    p_end = doc.add_paragraph()
-                    p_end.paragraph_format.line_spacing = None
-                    p_end.add_run(f"\n_______________________\nFIRMA: {nombre}\n").bold = True
-                    r_end = p_end.add_run()
-                    r_end.add_picture(io.BytesIO(r_bytes), width=Inches(1.8))
+                    # 1. Rúbrica ARRIBA de la línea de firma
+                    p_rub = doc.add_paragraph()
+                    p_rub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    p_rub.paragraph_format.line_spacing = None
+                    p_rub.paragraph_format.space_before = Inches(0.1)
+                    p_rub.paragraph_format.space_after = Inches(0.01)
+                    r_img = p_rub.add_run()
+                    r_img.add_picture(io.BytesIO(r_bytes), width=Inches(1.8))
+
+                    # 2. Línea de firma y Nombre del firmante DEBAJO de la rúbrica
+                    p_name = doc.add_paragraph()
+                    p_name.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    p_name.paragraph_format.line_spacing = None
+                    p_name.paragraph_format.space_before = Inches(0.01)
+                    p_name.paragraph_format.space_after = Inches(0.05)
+                    run_text = p_name.add_run(f"_______________________________________\n{nombre}")
+                    run_text.bold = True
+
                     modified = True
                     firma_insertada = True
-                    metodo = "al final del documento (anexo de firma)"
+                    metodo = "al final del documento (bloque oficial de firma)"
                 except Exception:
                     pass
 
@@ -1255,7 +1268,7 @@ def main():
                     pdf_bytes = raw_doc_bytes
 
                 signed_pdf_bytes, summary_meta, sig_details = procesar_firma_pdf(
-                    pdf_bytes, signers_credentials, estampar_en_paginas_doc=(modified_docx_bytes is None)
+                    pdf_bytes, signers_credentials, estampar_en_paginas_doc=True
                 )
 
                 st.success("✅ ¡Documento firmado exitosamente!")
@@ -1342,17 +1355,34 @@ def main():
 
 
 def display_pdf_inline(pdf_bytes: bytes, height: int = 700):
-    """Renderiza una vista previa interactiva del archivo PDF firmado directamente en Streamlit."""
-    b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    pdf_display = f'''
-    <iframe src="data:application/pdf;base64,{b64_pdf}#toolbar=1&navpanes=1&scrollbar=1" 
-            width="100%" 
-            height="{height}px" 
-            type="application/pdf" 
-            style="border:2px solid #006341; border-radius:10px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-    </iframe>
-    '''
-    st.markdown(pdf_display, unsafe_allow_html=True)
+    """Renderiza la vista previa del PDF firmado de forma 100% compatible con todos los navegadores y móviles sin bloqueos de iframe."""
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        num_pages = len(doc)
+        
+        st.info(f"📄 **Vista Previa del Documento Firmado ({num_pages} página(s)):**")
+        
+        for i in range(num_pages):
+            page = doc[i]
+            pix = page.get_pixmap(dpi=140)
+            img_bytes = pix.tobytes("png")
+            st.image(img_bytes, caption=f"Página {i+1} de {num_pages}", use_container_width=True)
+            if i < num_pages - 1:
+                st.markdown("<hr style='border:1px dashed #006341;'>", unsafe_allow_html=True)
+    except Exception:
+        b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+        pdf_display = f'''
+        <object data="data:application/pdf;base64,{b64_pdf}" type="application/pdf" width="100%" height="{height}px">
+            <iframe src="data:application/pdf;base64,{b64_pdf}#toolbar=1&navpanes=1&scrollbar=1" 
+                    width="100%" 
+                    height="{height}px" 
+                    type="application/pdf" 
+                    style="border:2px solid #006341; border-radius:10px;">
+            </iframe>
+        </object>
+        '''
+        st.markdown(pdf_display, unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
