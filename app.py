@@ -1355,34 +1355,52 @@ def main():
 
 
 def display_pdf_inline(pdf_bytes: bytes, height: int = 700):
-    """Renderiza la vista previa del PDF firmado de forma 100% compatible con todos los navegadores y móviles sin bloqueos de iframe."""
+    """Renderiza la vista previa del PDF firmado de forma 100% inmune a bloqueos de iframe/navegadores."""
     try:
-        import fitz  # PyMuPDF
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        num_pages = len(doc)
-        
-        st.info(f"📄 **Vista Previa del Documento Firmado ({num_pages} página(s)):**")
-        
-        for i in range(num_pages):
-            page = doc[i]
-            pix = page.get_pixmap(dpi=140)
-            img_bytes = pix.tobytes("png")
-            st.image(img_bytes, caption=f"Página {i+1} de {num_pages}", use_container_width=True)
-            if i < num_pages - 1:
-                st.markdown("<hr style='border:1px dashed #006341;'>", unsafe_allow_html=True)
+        import pymupdf as fitz
+    except ImportError:
+        try:
+            import fitz
+        except ImportError:
+            fitz = None
+
+    if fitz is not None:
+        try:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            num_pages = len(doc)
+            
+            st.info(f"📄 **Vista Previa Interactiva ({num_pages} página(s)):**")
+            
+            if num_pages > 1:
+                tab_labels = []
+                for i in range(num_pages):
+                    if i == num_pages - 1:
+                        tab_labels.append(f"Página {i+1} (Evidencia NOM-151)")
+                    else:
+                        tab_labels.append(f"Página {i+1}")
+                
+                tabs = st.tabs(tab_labels)
+                for i, tab in enumerate(tabs):
+                    with tab:
+                        page = doc[i]
+                        pix = page.get_pixmap(dpi=150)
+                        img_bytes = pix.tobytes("png")
+                        st.image(img_bytes, caption=f"Página {i+1} de {num_pages} - Vista previa nativa de alta definición", use_container_width=True)
+            else:
+                page = doc[0]
+                pix = page.get_pixmap(dpi=150)
+                img_bytes = pix.tobytes("png")
+                st.image(img_bytes, caption="Página 1 de 1 - Vista previa nativa", use_container_width=True)
+            return
+        except Exception as e:
+            st.warning(f"⚠️ No se pudo generar el renderizado de la imagen: {str(e)}")
+
+    try:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        num_pages = len(reader.pages)
+        st.success(f"📄 **Documento firmado generado exitosamente ({num_pages} páginas).** Descárgalo a continuación.")
     except Exception:
-        b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-        pdf_display = f'''
-        <object data="data:application/pdf;base64,{b64_pdf}" type="application/pdf" width="100%" height="{height}px">
-            <iframe src="data:application/pdf;base64,{b64_pdf}#toolbar=1&navpanes=1&scrollbar=1" 
-                    width="100%" 
-                    height="{height}px" 
-                    type="application/pdf" 
-                    style="border:2px solid #006341; border-radius:10px;">
-            </iframe>
-        </object>
-        '''
-        st.markdown(pdf_display, unsafe_allow_html=True)
+        st.info("📄 Documento firmado listo para descarga.")
 
 
 if __name__ == "__main__":
