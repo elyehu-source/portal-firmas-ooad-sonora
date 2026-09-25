@@ -1,0 +1,15 @@
+name: Mantener App Streamlit Despierta 24/7
+
+on:
+  schedule:
+    # Se ejecuta automáticamente cada 10 minutos
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enviar Ping de Mantenimiento
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" https://app-firmas-ooad-sonora-ntpnqqv7ywsaarjdhvbkiq.streamlit.app
